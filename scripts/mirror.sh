@@ -24,15 +24,20 @@ fi
 
 [ -d "$bare" ] || git init -q --bare -b main "$bare"
 git_s push -q --force "$bare" main
-# Static ("dumb") HTTP needs this index refreshed after every push.
-git -C "$bare" update-server-info
-
+# Argo CD speaks the "smart" Git protocol, which a static web server cannot serve: git daemon can.
 if ! docker ps --format '{{.Names}}' | grep -qx "$MIRROR_NAME"; then
   docker rm -f "$MIRROR_NAME" >/dev/null 2>&1 || true
   docker run -d --name "$MIRROR_NAME" --network "$NETWORK" --restart unless-stopped \
-    -v "$CACHE/mirror:/usr/share/nginx/html:ro" nginx:alpine >/dev/null
+    -v "$CACHE/mirror:/srv/git:ro" alpine:3.22 \
+    sh -c 'apk add --no-cache git-daemon >/dev/null && exec git -c safe.directory=\* daemon --reuseaddr --export-all --base-path=/srv/git --informative-errors /srv/git' >/dev/null
 fi
+
+# Wait until the daemon accepts connections (the first start installs it).
+for _ in $(seq 1 30); do
+  docker exec "$MIRROR_NAME" sh -c 'nc -z 127.0.0.1 9418' >/dev/null 2>&1 && break
+  sleep 1
+done
 
 ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$MIRROR_NAME")
 [ -n "$ip" ] || die "could not find the Git mirror's address on network $NETWORK"
-echo "http://${ip}/repo.git"
+echo "git://${ip}/repo.git"

@@ -29,6 +29,11 @@ jobs:
         run: make tools
 
       - name: Build the platform from this commit
+        # Argo CD reads this exact commit from GitHub, as a real deployment would.
+        env:
+          SOURCE: github
+          GITHUB_URL: https://github.com/${{ github.repository }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: make up 2>&1 | tee .cache-up.log
         shell: bash -o pipefail {0}
 

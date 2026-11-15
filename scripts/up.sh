@@ -2,10 +2,11 @@
 # Create the cluster and hand it to Argo CD. Safe to run again: every step is idempotent.
 #
 #   SOURCE=local  (default) Argo CD reads a mirror of this checkout.
-#   SOURCE=github           Argo CD reads the public repository.
+#   SOURCE=github           Argo CD reads the public repository, at REVISION (branch, tag or commit).
 . "$(dirname "$0")/lib.sh"
 
 SOURCE="${SOURCE:-local}"
+REVISION="${REVISION:-main}"
 GITHUB_URL="${GITHUB_URL:-https://github.com/franckygires/k3s-gitops-reference}"
 started=$(now)
 
@@ -100,9 +101,10 @@ helm upgrade --install argocd argo-cd \
 # --- 5. Point Argo CD at Git and let it build everything else --------------------------------
 if [ "$SOURCE" = "github" ]; then
   repo_url="$GITHUB_URL"
-  log "Argo CD will read ${repo_url}"
+  log "Argo CD will read ${repo_url} at ${REVISION}"
 else
   repo_url=$("$ROOT/scripts/mirror.sh")
+  REVISION=main
   log "Argo CD will read the local mirror of this checkout (${repo_url})"
 fi
 
@@ -116,14 +118,14 @@ spec:
   project: default
   source:
     repoURL: ${repo_url}
-    targetRevision: main
+    targetRevision: ${REVISION}
     path: gitops/apps
     helm:
       parameters:
         - name: repoURL
           value: ${repo_url}
         - name: revision
-          value: main
+          value: ${REVISION}
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
