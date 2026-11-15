@@ -1,0 +1,12 @@
+# Arguments passed to every K3s server, one per line.
+#
+# Three etcd members share one laptop's CPU and disk. These settings stop a slow moment from
+# being mistaken for a dead node. None of them belongs on real, separate machines.
+--etcd-arg=heartbeat-interval=500
+--etcd-arg=election-timeout=5000
+# Skip fsync on every etcd write: the three "disks" are the same disk anyway.
+# Data still survives a node restart; only a crash of the host itself could lose it.
+--etcd-arg=unsafe-no-fsync=true
+--etcd-disable-snapshots
+# Not used by anything here; one less component to run.
+--disable=metrics-server

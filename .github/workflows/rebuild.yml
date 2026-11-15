@@ -1,0 +1,69 @@
+# On every push: build the whole platform from this commit, verify it, then break it on purpose.
+# A green run means "reproducible from Git" is true for this exact commit.
+name: rebuild-from-git
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebuild-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Raise inotify limits (three K3s servers on one host need more than the default)
+        run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
+
+      - name: Install k3d (pinned, checksum verified)
+        run: make tools
+
+      - name: Build the platform from this commit
+        run: make up
+
+      - name: Verify
+        run: make test
+
+      - name: Failure drill
+        run: make drill
+
+      - name: Verify again after the drill
+        run: make test
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Rebuild from Git"
+            if [ -f .cache/last-up-seconds ]; then
+              s=$(cat .cache/last-up-seconds)
+              echo "Empty machine to verified platform: **$((s / 60)) min $((s % 60)) s**"
+            fi
+            echo
+            [ -f .cache/drill-report.md ] && cat .cache/drill-report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          scripts/diagnose.sh | tee .cache/diagnostics.txt
+          # Also attach the start of the report to the run as an annotation, readable without the logs.
+          report=$(head -c 3500 .cache/diagnostics.txt | sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g')
+          echo "::error title=Diagnostics::${report}"
+
+      - name: Keep the diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics
+          path: .cache/diagnostics.txt

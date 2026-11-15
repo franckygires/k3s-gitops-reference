@@ -8,7 +8,7 @@ Everything here was written for this repository. It contains no code, configurat
 
 ## Try it
 
-You need Docker, `kubectl` and `helm`. Plan for about 4 GB of free memory.
+You need Docker, `kubectl` and `helm`, on a machine that can give Docker at least 8 GB of memory and 4 CPUs. Three control planes on one host are demanding: on less than that, nodes miss their deadlines and restart.
 
 ```bash
 make tools     # installs the pinned k3d into ./bin, after verifying its checksum
@@ -75,7 +75,7 @@ The latest report is written to `.cache/drill-report.md`, and CI publishes it in
 ## Layout
 
 ```
-bootstrap/          the only imperative part: cluster definition and Argo CD's own settings
+bootstrap/          the only imperative part: K3s server settings and Argo CD's own settings
 gitops/apps/        app of apps: one Argo CD Application per component, pinned versions
 gitops/platform/    certificate issuers, secret store
 gitops/data/        PostgreSQL cluster and its credentials reference

@@ -1,0 +1,21 @@
+# Wave 2: the database. Its credentials come from Vault, so it follows the secret store.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.revision }}
+    path: gitops/data/postgres
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    {{- include "apps.syncPolicy" . | nindent 4 }}
+    syncOptions: [CreateNamespace=true]

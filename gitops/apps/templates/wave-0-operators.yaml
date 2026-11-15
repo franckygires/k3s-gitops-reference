@@ -1,0 +1,120 @@
+# Wave 0: operators and their CRDs. Nothing else can be applied before these are healthy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: {{ .Values.charts.certManager }}
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    {{- include "apps.syncPolicy" . | nindent 4 }}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: {{ .Values.charts.cloudnativePg }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    {{- include "apps.syncPolicy" . | nindent 4 }}
+    # The CRDs are too large for client-side apply's last-applied annotation.
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://charts.external-secrets.io
+    chart: external-secrets
+    targetRevision: {{ .Values.charts.externalSecrets }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    {{- include "apps.syncPolicy" . | nindent 4 }}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: {{ .Values.charts.vault }}
+    helm:
+      valuesObject:
+        injector:
+          enabled: false
+        server:
+          # DEMO SIMPLIFICATION. Dev mode: in memory, already unsealed, fixed root token.
+          # It stands in for a real Vault so the secret path (Vault -> External Secrets -> pod)
+          # is the real one. See docs/adr/0004-secrets-outside-git.md.
+          dev:
+            enabled: true
+          # The value an operator would write into Vault by hand. scripts/up.sh generates it
+          # at cluster creation; it never exists in Git.
+          extraSecretEnvironmentVars:
+            - envName: SEED_PG_PASSWORD
+              secretName: vault-seed
+              secretKey: pg-password
+          # Dev mode loses everything on restart, so Vault is configured each time it starts.
+          postStart:
+            - /bin/sh
+            - -c
+            - |
+              export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN="$VAULT_DEV_ROOT_TOKEN_ID"
+              i=0; until vault status >/dev/null 2>&1; do i=$((i+1)); [ "$i" -gt 60 ] && exit 1; sleep 1; done
+              vault auth enable kubernetes 2>/dev/null || true
+              vault write auth/kubernetes/config kubernetes_host=https://kubernetes.default.svc:443
+              printf 'path "secret/data/demo/*" { capabilities = ["read"] }\n' | vault policy write demo-read -
+              vault write auth/kubernetes/role/external-secrets \
+                bound_service_account_names=external-secrets \
+                bound_service_account_namespaces=external-secrets \
+                audience=vault policies=demo-read ttl=1h
+              vault kv put secret/demo/postgres username=app password="$SEED_PG_PASSWORD"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    {{- include "apps.syncPolicy" . | nindent 4 }}
+    syncOptions: [CreateNamespace=true]

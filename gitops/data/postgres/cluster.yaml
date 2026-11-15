@@ -1,0 +1,53 @@
+# PostgreSQL, three instances, one per node.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  instances: 3
+
+  postgresql:
+    # RPO = 0: a commit is acknowledged only once at least one standby has it.
+    # "required" means PostgreSQL refuses to acknowledge rather than fall back to asynchronous.
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+    parameters:
+      shared_buffers: 64MB
+      max_connections: "50"
+
+  # Never two instances on the same node.
+  affinity:
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+
+  storage:
+    size: 1Gi
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: pg-app
+      # Schema of the demo application. web_anon is the role PostgREST uses for requests.
+      postInitApplicationSQL:
+        - create role web_anon nologin
+        - grant web_anon to app
+        - >-
+          create table public.events (
+            id bigint generated always as identity primary key,
+            note text not null,
+            created_at timestamptz not null default now())
+        - grant usage on schema public to web_anon
+        - grant select, insert on public.events to web_anon

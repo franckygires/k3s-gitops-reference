@@ -1,0 +1,11 @@
+# Where Argo CD reads this repository from. Both values are set by scripts/up.sh:
+# the local Git mirror by default, or the public repository with SOURCE=github.
+repoURL: https://github.com/franckygires/k3s-gitops-reference
+revision: main
+
+# Pinned chart versions. Change a version here, commit, and Argo CD rolls it out.
+charts:
+  certManager: v1.21.3
+  cloudnativePg: 0.29.1
+  externalSecrets: 2.15.0
+  vault: 0.34.1
