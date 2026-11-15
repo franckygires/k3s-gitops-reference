@@ -23,17 +23,19 @@ Nothing outside this directory is modified: the cluster uses its own kubeconfig 
 
 ## Measured
 
-Every push runs the full cycle on a fresh GitHub-hosted runner (4 vCPU, 16 GB): build from Git, verify, break, verify again. Figures from the run on 2026-11-15:
+Every push runs the full cycle on a fresh GitHub-hosted runner (4 vCPU, 16 GB): build from Git, verify, break, verify again. Figures from the run of 2026-11-15, 23:47 UTC:
 
 | Measure | Result |
 |---|---|
-| Empty machine to verified platform | 5 min 11 s, including image downloads |
-| Writes acknowledged during the failure drill | 199 |
+| Empty machine to verified platform | 4 min 29 s, including image downloads |
+| Writes acknowledged during the failure drill | 143 |
 | Acknowledged writes missing from the database afterwards | **0** |
-| Requests that failed while the primary moved to another node | 47 |
-| Time for the stopped node to rejoin and PostgreSQL to return to 3 instances | 35 s |
+| Longest time without a successful write | 46.9 s |
+| Time for the stopped node to rejoin and PostgreSQL to return to 3 instances | 21 s |
 
 The latest figures are in the summary of each run under **Actions**.
+
+**Durability holds; availability takes time.** No acknowledged write is lost, but writes stop for most of a minute. Most of that is likely Kubernetes waiting before it declares a silent node dead, which happens before the database can promote a standby; the promotion itself is quick. Both delays can be shortened. They are left at their defaults here, because shortening them also makes a slow node more likely to be taken for a dead one.
 
 ## What it demonstrates, and how each claim is checked
 
