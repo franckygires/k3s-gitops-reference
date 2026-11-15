@@ -26,6 +26,8 @@ refresh_kubeconfig() { k3d kubeconfig get "$CLUSTER_NAME" > "$KUBECONFIG"; chmod
 settle() { # usage: settle <number of nodes expected>
   wait_for 600 "$1 node(s) to be Ready" bash -c \
     "[ \"\$(kubectl get nodes --no-headers 2>/dev/null | grep -cw Ready)\" -eq $1 ]"
+  wait_for 600 "$1 etcd member(s)" bash -c \
+    "[ \"\$(kubectl get nodes -l node-role.kubernetes.io/etcd=true --no-headers 2>/dev/null | wc -l)\" -eq $1 ]"
   wait_for 600 "CoreDNS" kubectl -n kube-system rollout status deploy/coredns --timeout=5s
   wait_for 600 "Traefik" kubectl -n kube-system rollout status deploy/traefik --timeout=5s
 }
@@ -44,7 +46,7 @@ else
     --k3s-arg "--cluster-init@server:0" "${create_args[@]}" \
     --port "${HTTPS_PORT}:443@loadbalancer" --port "${HTTP_PORT}:80@loadbalancer" \
     --kubeconfig-update-default=false --kubeconfig-switch-context=false \
-    --wait --timeout 600s >/dev/null
+    --wait --timeout 600s > "$CACHE/create.log" 2>&1 || { cat "$CACHE/create.log"; die "cluster creation failed"; }
   refresh_kubeconfig
   settle 1
 fi
@@ -52,10 +54,21 @@ fi
 servers=$(kubectl get nodes --no-headers | wc -l)
 while [ "$servers" -lt 3 ]; do
   log "Adding server $((servers + 1)) of 3"
+  name="${CLUSTER_NAME}-server-${servers}"
   join_args=()
   for a in "${server_args[@]}"; do join_args+=(--k3s-arg "$a"); done
-  k3d node create "${CLUSTER_NAME}-server-${servers}" --cluster "$CLUSTER_NAME" --role server \
-    "${join_args[@]}" --wait --timeout 600s >/dev/null
+  # etcd admits one new member at a time: a server that tries to join while the previous one is
+  # still being promoted is refused. Rather than guess how long promotion takes, retry.
+  attempt=1
+  until k3d node create "$name" --cluster "$CLUSTER_NAME" --role server \
+    "${join_args[@]}" --wait --timeout 300s > "$CACHE/join.log" 2>&1; do
+    [ "$attempt" -ge 5 ] && { cat "$CACHE/join.log"; die "server $((servers + 1)) could not join after 5 attempts"; }
+    echo "    join refused (attempt ${attempt}/5), retrying in 20 s: $(grep -iE 'level=(fatal|error)|ERRO|FATA' "$CACHE/join.log" | tail -1 | cut -c1-200)"
+    k3d node delete "k3d-${name}-0" >/dev/null 2>&1 || true
+    kubectl delete node "k3d-${name}-0" --ignore-not-found >/dev/null 2>&1 || true
+    attempt=$((attempt + 1))
+    sleep 20
+  done
   servers=$((servers + 1))
   settle "$servers"
 done

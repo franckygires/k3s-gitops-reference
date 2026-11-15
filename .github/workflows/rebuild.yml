@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Raise inotify limits (three K3s servers on one host need more than the default)
         run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
@@ -29,7 +29,8 @@ jobs:
         run: make tools
 
       - name: Build the platform from this commit
-        run: make up
+        run: make up 2>&1 | tee .cache-up.log
+        shell: bash -o pipefail {0}
 
       - name: Verify
         run: make test
@@ -50,20 +51,25 @@ jobs:
               echo "Empty machine to verified platform: **$((s / 60)) min $((s % 60)) s**"
             fi
             echo
-            [ -f .cache/drill-report.md ] && cat .cache/drill-report.md
+            if [ -f .cache/drill-report.md ]; then cat .cache/drill-report.md; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Diagnostics
         if: failure()
         run: |
-          scripts/diagnose.sh | tee .cache/diagnostics.txt
+          mkdir -p .cache
+          {
+            echo "### Last lines of the failing step"
+            sed 's/\x1b\[[0-9;]*m//g' .cache-up.log 2>/dev/null | grep -v '^INFO' | tail -15 | cut -c1-300
+            scripts/diagnose.sh
+          } | tee .cache/diagnostics.txt
           # Also attach the start of the report to the run as an annotation, readable without the logs.
           report=$(head -c 3500 .cache/diagnostics.txt | sed -e 's/%/%25/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g')
           echo "::error title=Diagnostics::${report}"
 
       - name: Keep the diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: diagnostics
           path: .cache/diagnostics.txt
