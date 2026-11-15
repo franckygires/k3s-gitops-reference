@@ -21,6 +21,20 @@ make destroy
 
 Nothing outside this directory is modified: the cluster uses its own kubeconfig in `.cache/`, and `~/.kube/config` is left alone.
 
+## Measured
+
+Every push runs the full cycle on a fresh GitHub-hosted runner (4 vCPU, 16 GB): build from Git, verify, break, verify again. Figures from the run on 2026-11-15:
+
+| Measure | Result |
+|---|---|
+| Empty machine to verified platform | 5 min 11 s, including image downloads |
+| Writes acknowledged during the failure drill | 199 |
+| Acknowledged writes missing from the database afterwards | **0** |
+| Requests that failed while the primary moved to another node | 47 |
+| Time for the stopped node to rejoin and PostgreSQL to return to 3 instances | 35 s |
+
+The latest figures are in the summary of each run under **Actions**.
+
 ## What it demonstrates, and how each claim is checked
 
 | Claim | How it is built | Checked by |
@@ -62,7 +76,7 @@ make sync      # publish it; Argo CD applies it within 30 seconds
 make status
 ```
 
-`SOURCE=github make up` reads the public repository instead.
+`SOURCE=github make up` reads the public repository instead. That is the mode CI uses, so it is the one verified on every push; the local mirror mode is not exercised by CI.
 
 ## The failure drill
 

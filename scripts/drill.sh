@@ -59,11 +59,12 @@ failed_count=$(grep -c ' fail$' "$work/log" || true)
 in_db=$(psql_primary "select id from events where note = '$run' order by id")
 lost=$(comm -23 <(printf '%s\n' "$acked" | sort) <(printf '%s\n' "$in_db" | sort) | grep -c . || true)
 
-# Unavailability: from the last success before the stop to the first success after it.
-outage=$(awk -v s="$stopped_at" '
-  $2=="ok" && $1 <  s {before=$1}
-  $2=="ok" && $1 >= s && !after {after=$1}
-  END { if (after) printf "%.1f", after - before; else print "n/a" }' "$work/log")
+# Unavailability: the longest gap between two successful writes. A few writes can still succeed
+# just after the node is stopped, before the failure is detected, so the gap is measured where it
+# actually happens rather than around the moment of the stop.
+outage=$(awk '
+  $2=="ok" { if (prev && $1 - prev > gap) gap = $1 - prev; prev = $1 }
+  END { if (prev) printf "%.1f", gap; else print "n/a" }' "$work/log")
 
 log "Restarting node ${node} and waiting for the cluster to heal"
 heal_start=$(now)
@@ -82,7 +83,7 @@ heal=$(( $(now) - heal_start ))
   echo "| Writes acknowledged to the client | ${acked_count} |"
   echo "| Acknowledged writes missing from the database | **${lost}** |"
   echo "| Requests that failed during the failover | ${failed_count} |"
-  echo "| Writes unavailable for | ${outage} s |"
+  echo "| Longest time without a successful write | ${outage} s |"
   echo "| New primary | \`${new_primary}\` |"
   echo "| Time for the stopped node to rejoin and PostgreSQL to return to 3 instances | $(duration "$heal") |"
 } > "$report"
